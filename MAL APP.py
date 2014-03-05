@@ -1,9 +1,6 @@
 """
 Important
-This code requires cURL in order to work, which can be downloaded as well as a tutorial on
-installation with a simple google search. Besides that everything else is default python
-with the exception of the directory of the webbrowser, which will at some point be changed
-to ask the user to location (or at least the name to find the app).
+This code requires cURL in order to work.
 
 A guide to download cURL: http://guides.instructure.com/s/2204/m/4214/l/83393-how-do-i-install-and-use-curl-on-a-windows-machine
 
@@ -16,9 +13,10 @@ import cStringIO # record system calls as files to support multiple lines (store
 import getpass # to hide the password input
 import webbrowser # to open default web browser
 import urllib # used to interract with http and retrieve status codes
+import logging # used for logging.. kinda what it says, ya know?
 
 class Series():
-    def __init__ (self, title, Id, cE, tE, Syn, Status, Score): # declare variables for the series
+    def __init__ (self, title="", Id="", cE="", tE="", Syn="", Status="", Score=""): # declare variables for the series
         self.title = title
         self.Id = Id
         self.cE = cE
@@ -30,16 +28,53 @@ class Series():
     def menuFormat(self): # returns a string in the form suitable for the menu
         return self.title+" ["+self.Id+"] "+self.cE+"/"+self.tE+" "+self.Status
 
-    def getFromID(ID, mode): # retrieves info using an id
+    def getFromID(self, ID, mode): # retrieves info using an id
+        logger.info('Retrieving series from ID: %s.' % str(ID))
+        bluf = cStringIO.StringIO()
         blah = "?mine=1"
         if mode: typ = "anime"
         else: typ = "manga"
-        buf.write(subprocess.check_output('curl -u "'+username+'":"'+password+'" mal-api.com/'+typ+'/'+str(ID)+blah, shell=True))
+        bluf.write(subprocess.check_output('curl -u "'+username+'":"'+password+'" mal-api.com/'+typ+'/'+str(ID)+blah, shell=True))
+        logger.info('getFromID curl request returned: \n%s.' % bluf.getvalue())
+        Title, Id, Syn, cE, tE, Score, Stat = Parse(Clean(bluf))
+        self.title, self.Id, self.cE ,self.tE, self.Syn, self.Status, self.Score = Title[0], Id[0], cE[0], tE[0], Syn[0], Stat[0], Score[0] # compacting variables
+        bluf.close()
 
     def watch(self): # watches a series onlne by inputting its own variables to WO(...)
-        WO(self.title,int(self.cE)+1,self.Id,self.Score,self.Score)
+        logger.info('Starting watch sequence.')
+        titl = self.title.replace(" ","-")
+        titl = titl.replace(":","")
+        titl = titl+"-episode-"+str(int(self.cE)+1)
+        titl = titl.lower()
+        dead = True
+        sites = ["http://www.animeseason.com/","http://www.gogoanime.com/","http://www.lovemyanime.net/"]
+        for site in sites:
+            print "Trying "+site
+            if urllib.urlopen(site+titl).getcode() == 200:
+                logger.info('Connecting to %s.' % site)
+                print "Connecting to "+site+"..."
+                webbrowser.open_new(site+titl)
+                progress = str(raw_input("Did you finish the episode (yes/dead/*): "))
+                if progress == "yes": #finished the episode, update mal
+                    print self.update(int(self.cE)+1, 2, 1)
+                    dead = False
+                    break
+                elif progress == "dead": # the link is dead
+                    logger.info('Link is dead.')
+                    pass
+                else: # the user didn't watch the episode, don't try other streams
+                    logger.info("Didn't watch.")
+                    dead = False
+                    break
+            else:
+                logger.info('%s failed.' % site)
+                print site+" appears to be dead"
+        if dead:
+            logger.error('Episode not found, dead or non-existant.')
+            print "Not found, episode may not exist."
 
     def update(self, value, typ, mode): # updates the series with a certain new value for a specified mode
+        logger.info('Begining update process with %s, %s, %s.' % str(value), str(typ), str(mode))
         if typ == 1: self.Status = str(value)
         elif typ == 2: self.cE = str(value)
         elif typ == 3: self. Score = str(value)
@@ -48,8 +83,14 @@ class Series():
                                                 ' -d episodes='+self.cE+' -d score='+self.Score+' http://mal-api.com/animelist/anime/'+str(self.Id), shell=True))
         else: b.write(subprocess.check_output('curl -u "'+username+'":"'+password+'" -X PUT -d status='+self.Status+
                                               ' -d chapters='+self.cE+' -d score='+self.Score+' http://mal-api.com/mangalist/manga/'+str(self.Id), shell=True))
-        if b.getvalue() == "": print "Updated Successfully"
-        else: print "Update Failed"
+        if b.getvalue() == "":
+            logger.info('Updated Successfully.')
+            print "Updated Successfully"
+        else:
+            logger.eror('Update Failed.')
+            print "Update Failed"
+        if self.cE == self.tE and typ == 2:
+            self.update(2, 1, mode)
 
 """
 Note to self, the search function grabs a webpage similar to the 502 exception page
@@ -57,10 +98,11 @@ that MAL/MML with grab from myanimelist directly, use the parsing found in Searc
 instead to remove dependancy on mal-api.com
 """
 def Search(search): # performs a search function, returning different values based on search results
+    logger.info('Search has been called for %s' % search)
     buf = cStringIO.StringIO()
     if mode == 1: typ = 'anime'
     else: typ = 'manga'
-    buf.write(subprocess.check_output('curl -u "'+username+'":"'+password+'" '+MALapi+typ+'/search.xml?q='+search, shell=True))
+    buf.write(Curl(typ+'/search.xml?q='+search))
     entry = 0 # number of entries found
     IDs = [] # array of id values
     Titles = [] # array of tile values
@@ -69,37 +111,28 @@ def Search(search): # performs a search function, returning different values bas
     tmpT = "" # temp for titles spanning longer than one line
     sBool = False # synopsis
     tmpS = "" # temp for synopsis
-    result = buf.getvalue()
-    result = result.split("\n")
+    result = buf.getvalue().split("\n")
     for lines in result:
         line = lines
         line = line.replace("<"," ") # removes < and > to parse easier
         line = line.replace(">"," ")
         ls = line.split()
-        if "entry" in ls: #checks for the number of entries
-            entry += 1
-        if "id" in ls: # checks for what the ID of the result is                
-            IDs.append(ls[1])
-        if "title" in ls: #  begins the caching of the title lines
-            tBool = True
-        if tBool: # caching of the title
-            tmpT += lines
+        if "entry" in ls: entry += 1 #checks for the number of entries
+        if "id" in ls: IDs.append(ls[1]) # checks for what the ID of the result is
+        if "title" in ls: tBool = True #  begins the caching of the title lines
+        if tBool: tmpT += lines # caching of the title
         if "/title" in ls: # checks for the end of the title sequence
             tBool = False
             Titles.append(tmpT[11:-8])
             tmpT = ""
-        if "synopsis" in ls: #  begins the caching of the title lines
-            sBool = True
-        if sBool: # caching of the title
-            tmpS += lines
+        if "synopsis" in ls: sBool = True #  begins the caching of the title lines
+        if sBool: tmpS += lines # caching of the title
         if "/synopsis" in ls: # checks for the end of the title sequence
             sBool = False
             Syn.append(tmpS[14:-11])
             tmpS = ""
-    i = 1
-    for title in Titles:
-        print str(i)+". "+title
-        i += 1
+    for i in range(0,len(Titles)):
+        print str(i+1)+". "+Titles[i]
     finished = False
     while not finished: # loop until correct name is selected or quit
         name = raw_input("Enter the corresponding number to the anime: ")
@@ -115,12 +148,19 @@ def Search(search): # performs a search function, returning different values bas
         print Syn[i]
         answer = str(raw_input("Enter 'yes' if this is the correct anime: "))
         if answer != "yes": finished = False
-    Id = 0
-    if not finished: pass # returns that no anime was found
-    else: Id = IDs[i] # returns id of selected anime if user says so
-    return Id
+    if not finished:
+        logger.info('Returned 0 for the ID.')
+        return 0 # returns that no anime was found
+    else:
+        logger.info('Returned %s for the ID.' % str(IDs[i]))
+        return IDs[i] # returns id of selected anime if user says so
+
+def Curl(args):
+    logger.info('cURL has been called for %s.' % args)
+    return subprocess.check_output('curl -u "'+username+'":"'+password+'" '+MALapi+args, shell=True)
 
 def Clean(buf): # cleans a string buffer from MAL-API json
+    logger.info('Cleaning json from mal-api.')
     page = buf.getvalue() # same steps as search
     page = page.replace(":"," ") # cleaning out the raw string from cURL for parsing
     page = page.replace(","," ")
@@ -140,6 +180,7 @@ def Clean(buf): # cleans a string buffer from MAL-API json
     return tA
 
 def Parse(tA): # parses the split data from MAL
+    logger.info('Parsing data from MAL.')
     Titles = []
     IDs = []
     Syns = []
@@ -165,15 +206,13 @@ def Parse(tA): # parses the split data from MAL
             Scores.append(tA[pos+1])
         pos += 1
     if Titles == []:
+        logger.error('Parse attempt failed and returned no data.')
+        if tA[0] != None:
+            tt = ""
+            for value in tA: tt += value + '\n'
+            logger.critical('Parsing error occurred on string buffer: %s.' % tt)
         Titles, IDs, Syns, cEP, tEP, Scores, Status = ["Failed to Access",], ["0",], ["0",], ["0",], ["0",], ["0",], ["0",]
     return Titles, IDs, Syns, cEP, tEP, Scores, Status
-
-def findTitle(ls): # Takes in a list of strings, and returns a string of them joined together with spaces
-    tmpA = ls[1:-1]
-    tmpS = ""
-    for item in tmpA:
-            tmpS += item+" "
-    return tmpS[:-1]
 
 """
 I'll document this function more because of the complex situation ive put myself into;
@@ -185,17 +224,13 @@ after I had fixed the functionality of the 'backup' option and had both MAL() an
 running extrememly similar code
 """
 def malParse(buf, mode=True):
+    logger.info('malParse has been called.')
     if mode == True: toFind = ["series_animedb_id","series_title","my_watched_episodes",
                                "series_episodes","my_status","my_score"]
     else: toFind = ["series_mangadb_id","series_title","my_read_chapters","series_chapters",
                     "my_status","my_score"]
     result = buf.split("><")
-    IDs = []
-    Titles = []
-    cEP = []
-    tEP = []
-    Scores = []
-    Status = []
+    IDs, Titles, cEP, tEP, Scores, Status = [], [], [], [], [], [] # all list holding respective values
     for lines in result:
             line = lines
             line = line.replace("<"," ") # removes < and > to parse easier
@@ -204,106 +239,122 @@ def malParse(buf, mode=True):
             if toFind[0] in ls: # checks for the id of a series
                 IDs.append(ls[1])
             if toFind[1] in ls: # checks for the title of a series
-                Titles.append(findTitle(ls))
+                Titles.append(" ".join(ls[1:-1]))
             if toFind[2] in ls: # checks for the current episode of a series
                 cEP.append(ls[1])
             if toFind[3] in ls: # checks for the total eps of a series
                 tEP.append(ls[1])
             if toFind[4] in ls: # checks for the status of a series
-                Status.append(int(findTitle(ls)))
+                Status.append(int(" ".join(ls[1:-1])))
             if toFind[5] in ls: # checks for current user score of the series
                 Scores.append(ls[1])
     return Titles, IDs, ["XML",], cEP, tEP, Scores, Status
 
 def MAL(): # retrieves the anime list of a user
+    logger.info('MAL has been called.')
     buf = cStringIO.StringIO()
-    buf.write(subprocess.check_output('curl mal-api.com/animelist/'+username, shell=True))
-    if "502" in buf.getvalue(): # if 502 gateway error do xml new api, not working
-        print "Mal-api.com is down, initiating Beta program"
+    try:
         buf.write(subprocess.check_output('curl myanimelist.net/malappinfo.php?u='+username+'&type=anime'))
-        Titles, IDs, Syn, cEP, tEP, Scores, Status = malParse(buf.getvalue(), True)
-        return Titles, IDs, ["XML",], cEP, tEP, Scores, Status
-    else:  # if everything works out fine then use default mal-api.com
-        tA = Clean(buf)
-        return Parse(tA)     
-    buf.close()
-    return ["Failed to Access",], ["0",], ["0",], ["0",], ["0",], ["0",], ["0",] # if none of the above work
+        return malParse(buf.getvalue(), True)     
+    except: return ["Failed to Access",], ["0",], ["0",], ["0",], ["0",], ["0",], ["0",] # if none of the above work
 
 def MML(): # retrieves the manga list of a user
+    logger.info('MML has been called.')
     buf = cStringIO.StringIO()
-    buf.write(subprocess.check_output('curl mal-api.com/mangalist/'+username, shell=True))
-    if "502" in buf.getvalue(): # if 502 gateway error do xml new api, not working
-        print "Mal-api.com is down, initiating Beta program"
+    try:
         buf.write(subprocess.check_output('curl myanimelist.net/malappinfo.php?u='+username+'&type=manga'))
-        return malParse(buf.getvalue(), False)
-    else:  # if everything works out fine then use default mal-api.com
-        tA = Clean(buf)
-        return Parse(tA)     
-    buf.close()
-    return ["Failed to Access",], ["0",], ["0",], ["0",], ["0",], ["0",], ["0",] # if none of the above work
+        return malParse(buf.getvalue(), False)   
+    except: return ["Failed to Access",], ["0",], ["0",], ["0",], ["0",], ["0",], ["0",] # if none of the above work
     
-    
+# the encryption method atm is extremely weak and more along the original intent of this
+# program, which was a learning project. Make sure to change if it becomes anything more.
+def Encrypt(usr, psw): # encrypts the password using the username
+    logger.info('Encrypting password.')
+    encr = ""
+    for ch in psw:
+        encr += chr(ord(ch)+len(usr) % 256)
+    try:
+        f = open("conf.txt", 'w')
+        f.write(encr)
+        f.close()
+        print "Password saved"
+        logger.info('Password wrote successfully')
+        return True
+    except:
+        logger.info('Password write failed')
+        return False
 
-def WO(title,cE,iD,Score,Stat):
-    title = title.replace(" ","-")
-    title = title+"-episode-"+str(cE)
-    title = title.lower()
-    dead = True
-    if urllib.urlopen("http://www.animeseason.com/"+title).getcode() == 200:
-        print "Connecting to animeseason..."
-        webbrowser.open_new("www.animeseason.com/"+title)
-        progress = str(raw_input("Did you finish the episode (yes/dead/*): "))
-        if progress == "yes": #finished the episode, update mal
-            print Update(cE,iD,Score,Stat)
-        elif progress == "dead": # the link is dead
-            pass
-        else: # the user didn't watch the episode, don't try other streams
-            dead = False
-    else: print "animeseason.com appears to either not carry this series or is offline"
-    if dead and urllib.urlopen("http://www.gogoanime.com/"+title).getcode() == 200:
-        print "Trying gogoanime..."
-        webbrowser.open_new("www.gogoanime.com/"+title)
-        progress = str(raw_input("Did you finish the episode (yes/*): "))
-        if progress == "yes": #finished the episode, update mal
-            print Update(cE,iD,Score,Stat)
-        elif progress == "dead": # the link is dead
-            pass
-        else: # the user didn't watch the episode, don't try other streams
-            dead = False
-    else: print "gogoanime.com appears to either not carry this series or is offline"
-    if dead and urllib.urlopen("http://www.lovemyanime.net/"+title).getcode() == 200:
-        print "Trying lovemyanime..."
-        webbrowser.open_new("www.lovemyanime.net/"+title)
-        progress = str(raw_input("Did you finish the episode (yes/*): "))
-        if progress == "yes": #finished the episode, update mal
-            print Update(cE,iD,Score,Stat)
-        else: # didn't finish the episode, don't update mal
-            pass
-    else: print "Not found on animeseason or gogoanime or lovemyanime, episode may not exist."
+def Decrypt(usr, f): # Decrypts the password using the username
+    logger.info('Opening file for decryption')
+    try:
+        nenc = f.read()
+    except:
+        logger.info('Failed to read file.')
+        return False
+    dencr = ""
+    for ch in nenc:
+        dencr += chr(ord(ch)-len(usr) % 256)
+    logger.info('Password successfully decrypted.')
+    return dencr
 
-#=================================================================
+#==================================================================================
 # Start of program
-#=================================================================
+# Set user specified variables here:
+savePassword = True # Will save the password with feeble encryption, your choice (True/False)
+# End of user variables, mess with code at your own risk
+#==================================================================================
+
+# Set up logging
+logger = logging.getLogger('Logging')
+logger.setLevel(logging.DEBUG)
+ch = logging.FileHandler('MAL_APP_log.txt')
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
+logger.info('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+logger.info('Program started.')
+
+"""if subprocess.check_output('curl') != "curl: try 'curl --help' or 'curl --manual' for more information":
+    print "This program requires cURL in order to run, please install and restart this program"
+    webbrowser.open_new("http://guides.instructure.com/s/2204/m/4214/l/83393-how-do-i-install-and-use-curl-on-a-windows-machine")
+    exit""" # meant to check if curl is installed, find a better method
 MALapi = "http://myanimelist.net/api/" # the basis of the url to acess MAL api
 cred = False # whether the credentials went through
+password = ""
+username = str(raw_input("Enter your username: "))
+if savePassword: # if the password is set to remember, check for it before asking for pass
+    try:
+        f = open("conf.txt", 'r')
+        password = Decrypt(username, f)
+        f.close()
+        logger.info('Password accessed from file.')
+    except:
+        print "Password retrieval failed, file not found"
+        logger.info('Password from file retrieval failed.')
 while not cred: # get a valid account from the user to use MAL api correctly
-    username = str(raw_input("Enter your username: "))
-    password = getpass.getpass()
+    if username == "": username = str(raw_input("Enter your username: "))
+    if password == "": password = getpass.getpass()
     output = cStringIO.StringIO()
-    print output.getvalue()
     try: # Attempts to access myanimelist.net with the credentials
-        output.write(subprocess.check_output('curl -u "'+username+'":"'+password+'" '+MALapi+'account/veriy_credentials.xml', shell=True))
+        output.write(Curl('account/veriy_credentials.xml'))
     except: # If the connection fails then don't show the credentials in the terminal window to protect user data
         print "========================================"
         print "Failed to Connect, please check your internet connection. If this problem persists then myanimelist may be down"
         print "========================================"
+        logger.error('Failed to connect when verifying credentials.')
         break # Leaves the loop with cred = False
     result = output.getvalue()
-    if result == "Invalid credentials": print "Invalid credentials, try again"
+    if result == "Invalid credentials":
+        logger.error('Failed loggin attempt for %s' % username)
+        print "Invalid credentials, try again"
+        password = ""
+        username = ""
     else: cred = True
     output.close()
 actions = ["Search","View My List","Select a Series","Refresh","Set ID","Change Mode","Exit"] # list of actions available to the user
 if cred: # If the logon did work, try fetching data through MAL() before proceeding
+    if savePassword: Encrypt(username, password)
+    logger.info('Login sucessful for %s.' % username)
     print "Login sucess!"
     print "What mode do you want be in? \n1. Anime\n2. Manga"
     while True:
@@ -312,19 +363,16 @@ if cred: # If the logon did work, try fetching data through MAL() before proceed
         else: break
     if mode == 1:Titles, IDs, Syns, cEP, tEP, Scores, Status = MAL() # begins retrieving data from MAL
     else: Titles, IDs, Syns, cEP, tEP, Scores, Status = MML() # manga version
-    p = 1
-    ID = 0
-    watching = []
-    completed = []
-    plan = []
-    drop = []
-    hold = []
-    canrun = True
+    p, ID, watching, completed, plan, drop, hold, canrun = 1, 0, [], [], [], [], [], True # compacting lines
     if Titles[0] == "Failed to Access": # The servers are down, end.
         print "The servers are down at the moment for mal-api.com, please try again later"
         canrun = False
+        logger.error('Failed access to servers.')
 else: # MAL is down, don't run the program any more
     canrun = False
+    print "Sorry, offline mode is not implemented yet."
+    logger.info('MAL is down, exiting program sequence.')
+    exit()
 if mode == 1: conv = {2: 'completed', 6: 'plan to watch', 1: 'watching', 3: 'on-hold', 4: 'dropped'}
 else: conv = {2: 'completed', 1: 'reading', 3: 'on-hold', 4: 'dropped'}
 if canrun: # if servers are up
@@ -344,8 +392,10 @@ if canrun: # if servers are up
     for anime in watching: # returns the currently watching
         print anime
     while True:
+        logger.info('Home, ID = %s' % str(ID))
         if Titles[0] == "Failed to Access": # The servers are down, end.
             print "The servers are down at the moment for mal-api.com, please try again later"
+            logger.error('mal-api.com servers were not reached, breaking.')
             break
         print "You currently are selecting ID: "+str(ID)
         if mode == 1: print "Mode: Anime"
@@ -357,11 +407,13 @@ if canrun: # if servers are up
             tmp += 1
         action = int(raw_input(""))
         if action == 1: # begins the search for an anime and returning it's id
+            logger.info('Selected action: Search')
             search = str(raw_input("What do you want to search: "))
             search = search.replace(" ","+")
             ID = Search(search)
             if ID == 0: print "No anime selected"
         if action == 2: # returns the full anime list
+            logger.info('Selected action: View list')
             if mode == 1: print "================Watching================"
             else: print "================Reading================"
             for anime in watching: print anime
@@ -375,6 +427,7 @@ if canrun: # if servers are up
             print "================On Hold================"
             for anime in hold: print anime
         if action == 3: # inspect an anime from the list
+            logger.info('Selected action: Inspect')
             buf = cStringIO.StringIO()
             blah = "?mine=1"
             if ID == 0: # if no anime selected use default
@@ -386,25 +439,19 @@ if canrun: # if servers are up
                 selSeries = Anime[number-1] # Reuse existing data if appropriate
             else:
                 print "Loading information"
-                if mode == 1: buf.write(subprocess.check_output('curl -u "'+username+'":"'+password+'" mal-api.com/anime/'+str(ID)+blah, shell=True))
-                else: buf.write(subprocess.check_output('curl -u "'+username+'":"'+password+'" mal-api.com/manga/'+str(ID)+blah, shell=True))
-                tA = Clean(buf)
-                buf.close()
-                Title, Id, Syn, cE, tE, Score, Stat = Parse(tA)
-                selSeries = Series(Title[0], Id[0], cE[0], tE[0], Syn[0], Stat[0], Score[0]) # Creates a new series object with respective variables for inspect actions
-            print "Title: "+selSeries.title
-            print "<ID: "+selSeries.Id+">"
-            print "Progress: "+selSeries.cE+"/"+selSeries.tE+", Status: "+selSeries.Status
-            print "Synopsis: "+selSeries.Syn
-            print "Score: "+selSeries.Score
-            print "What action do you want to take: "
+                selSeries = Series()
+                selSeries.getFromID(ID, mode) # Creates a new series object with respective variables for inspect actions
+            whatToSay = ["Title: "+selSeries.title,"<ID: "+selSeries.Id+">","Progress: "+selSeries.cE+"/"+selSeries.tE+", Status: "+selSeries.Status,"Synopsis: "+selSeries.Syn,"Score: "+selSeries.Score,"What action do you want to take: "]
+            for items in whatToSay: print items
             if mode == 1 and (selSeries.cE != selSeries.tE): print "1. Watch online"
             print "2. Update"
             print "3. Nothing"
             r = int(raw_input(""))
             if r == 1: # attempt streams for selected anime
+                logger.info('Launching series.watch() for %s' % str(selSeries.title))
                 selSeries.watch()
             if r == 2: # show update options
+                logger.info('Choices.')
                 print "What do you want to update?"
                 print "1. Change status"
                 if mode == 1: print "2. Change episode progress"
@@ -412,6 +459,7 @@ if canrun: # if servers are up
                 print "3. Change score"
                 choice = int(raw_input(""))
                 if choice == 1: # changes the status
+                    logger.info('Changing status')
                     print "What status do you want to change to?"
                     if mode == 1: status = ['Watching', 'Completed', 'On Hold', 'Dropped', 'Plan to Watch']
                     else: status = ['Reading', 'Completed', 'On Hold', 'Dropped']
@@ -422,30 +470,29 @@ if canrun: # if servers are up
                     c = int(raw_input(""))
                     if c > 0 and c < len(status):
                         if c == 5 : c = 6 # to work with mal-api
+                        logger.info('Calling update( %s, %s, %s)' % str(c), str(choice), str(mode))
                         selSeries.update(c, choice, mode)
                     else: # kicks the user out
+                        logger.error('User chose invalid input')
                         print "Broke out"
                 elif choice == 2: # change episode
+                    logger.info('Setting current episode.')
                     if mode == 1: c = int(raw_input("Set current episode: "))
                     else: c = int(raw_input("Set current chapter: "))
                     selSeries.update(c, choice, mode)
                 elif choice == 3: # change score
                     c = int(raw_input("Enter the score: "))
                     if c > 0 and c < 11: # check for valid number
+                        logger.info('Changing the score')
                         selSeries.update(c, choice, mode)
             else: pass # does nothing
                         
         if action == 4: # refreshes anime list and resets selection
+            logger.info('Refreshing List.')
             print "Retrieving Data.."
             if mode == 1: Titles, IDs, Syns, cEP, tEP, Scores, Status = MAL() # begins retrieving data from MAL
             else: Titles, IDs, Syns, cEP, tEP, Scores, Status = MML()
-            p = 1
-            ID = 0
-            watching = []
-            completed = []
-            plan = []
-            drop = []
-            hold = []
+            p, ID, watching, completed, plan, drop, hold = 1, 0, [], [], [], [], [] # compacting lines
             if mode == 1: conv = {2: 'completed', 6: 'plan to watch', 1: 'watching', 3: 'on-hold', 4: 'dropped'}
             else: conv = {2: 'completed', 1: 'reading', 3: 'on-hold', 4: 'dropped'}
             if canrun: # if servers are up
@@ -465,20 +512,17 @@ if canrun: # if servers are up
                 print anime
         if action == 5: # sets the id
             ID = int(raw_input("Enter a select ID: "))
+            logger.info('Changed ID to %s' % str(ID))
         if action == 6: # changes the mode between anime and manga
             if mode == 1: mode = 2
             else: mode = 1
+            logger.info('Changed mode to %s' % str(mode))
             # Cheap code copypasta, fix it up with a function at some point
+            logger.info('Refreshing List.')
             print "Retrieving Data.."
             if mode == 1: Titles, IDs, Syns, cEP, tEP, Scores, Status = MAL() # begins retrieving data from MAL
             else: Titles, IDs, Syns, cEP, tEP, Scores, Status = MML()
-            p = 1
-            ID = 0
-            watching = []
-            completed = []
-            plan = []
-            drop = []
-            hold = []
+            p, ID, watching, completed, plan, drop, hold = 1, 0, [], [], [], [], [] # compacting lines
             if mode == 1: conv = {2: 'completed', 6: 'plan to watch', 1: 'watching', 3: 'on-hold', 4: 'dropped'}
             else: conv = {2: 'completed', 1: 'reading', 3: 'on-hold', 4: 'dropped'}
             if canrun: # if servers are up
@@ -497,5 +541,8 @@ if canrun: # if servers are up
             for anime in watching: # returns the currently watching
                 print anime
         if action == 7: # exits from the program
+            logger.info('Exiting the program.')
             break
 bleak = raw_input("Thank you for using this app, press enter to exit...")
+logger.info('Program has fully ended.')
+logger.info('++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
