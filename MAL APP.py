@@ -47,7 +47,7 @@ class Series():
         titl = titl+"-episode-"+str(int(self.cE)+1)
         titl = titl.lower()
         dead = True
-        sites = ["http://www.animeseason.com/","http://www.gogoanime.com/","http://www.lovemyanime.net/"]
+        sites = ["http://www.animeseason.com/","http://www.gogoanime.com/","http://www.lovemyanime.net/","http://www.animedreaming.tv/"]
         for site in sites:
             print "Trying "+site
             if urllib.urlopen(site+titl).getcode() == 200:
@@ -74,7 +74,7 @@ class Series():
             print "Not found, episode may not exist."
 
     def update(self, value, typ, mode): # updates the series with a certain new value for a specified mode
-        logger.info('Begining update process with %s, %s, %s.' % str(value), str(typ), str(mode))
+        logger.info('Begining update process.')
         if typ == 1: self.Status = str(value)
         elif typ == 2: self.cE = str(value)
         elif typ == 3: self. Score = str(value)
@@ -87,7 +87,7 @@ class Series():
             logger.info('Updated Successfully.')
             print "Updated Successfully"
         else:
-            logger.eror('Update Failed.')
+            logger.error('Update Faile, result: \n%s' % str(b.getvalue()))
             print "Update Failed"
         if self.cE == self.tE and typ == 2:
             self.update(2, 1, mode)
@@ -157,7 +157,10 @@ def Search(search): # performs a search function, returning different values bas
 
 def Curl(args):
     logger.info('cURL has been called for %s.' % args)
-    return subprocess.check_output('curl -u "'+username+'":"'+password+'" '+MALapi+args, shell=True)
+    try: return subprocess.check_output('curl -u "'+username+'":"'+password+'" '+MALapi+args, shell=True)
+    except:
+        logger.error("cURL failed.")
+        return "Failed"
 
 def Clean(buf): # cleans a string buffer from MAL-API json
     logger.info('Cleaning json from mal-api.')
@@ -230,8 +233,10 @@ def malParse(buf, mode=True):
     else: toFind = ["series_mangadb_id","series_title","my_read_chapters","series_chapters",
                     "my_status","my_score"]
     result = buf.split("><")
+    if vlogging: logger.info("Reading lines from buffer.")
     IDs, Titles, cEP, tEP, Scores, Status = [], [], [], [], [], [] # all list holding respective values
     for lines in result:
+            if vlogging: logger.info(lines)
             line = lines
             line = line.replace("<"," ") # removes < and > to parse easier
             line = line.replace(">"," ")
@@ -301,6 +306,7 @@ def Decrypt(usr, f): # Decrypts the password using the username
 # Start of program
 # Set user specified variables here:
 savePassword = True # Will save the password with feeble encryption, your choice (True/False)
+vlogging = True # Verbose logging, leave false unless otherwise instructed
 # End of user variables, mess with code at your own risk
 #==================================================================================
 
@@ -313,6 +319,7 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 logger.info('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
 logger.info('Program started.')
+if vlogging: logger.info("Verbose logging enabled.")
 
 """if subprocess.check_output('curl') != "curl: try 'curl --help' or 'curl --manual' for more information":
     print "This program requires cURL in order to run, please install and restart this program"
@@ -320,6 +327,7 @@ logger.info('Program started.')
     exit""" # meant to check if curl is installed, find a better method
 MALapi = "http://myanimelist.net/api/" # the basis of the url to acess MAL api
 cred = False # whether the credentials went through
+offline = False # If any online attempts fail this changes to true
 password = ""
 username = str(raw_input("Enter your username: "))
 if savePassword: # if the password is set to remember, check for it before asking for pass
@@ -330,7 +338,7 @@ if savePassword: # if the password is set to remember, check for it before askin
         logger.info('Password accessed from file.')
     except:
         print "Password retrieval failed, file not found"
-        logger.info('Password from file retrieval failed.')
+        logger.error('Password from file retrieval failed.')
 while not cred: # get a valid account from the user to use MAL api correctly
     if username == "": username = str(raw_input("Enter your username: "))
     if password == "": password = getpass.getpass()
@@ -342,6 +350,7 @@ while not cred: # get a valid account from the user to use MAL api correctly
         print "Failed to Connect, please check your internet connection. If this problem persists then myanimelist may be down"
         print "========================================"
         logger.error('Failed to connect when verifying credentials.')
+        offline = True
         break # Leaves the loop with cred = False
     result = output.getvalue()
     if result == "Invalid credentials":
@@ -364,14 +373,16 @@ if cred: # If the logon did work, try fetching data through MAL() before proceed
     if mode == 1:Titles, IDs, Syns, cEP, tEP, Scores, Status = MAL() # begins retrieving data from MAL
     else: Titles, IDs, Syns, cEP, tEP, Scores, Status = MML() # manga version
     p, ID, watching, completed, plan, drop, hold, canrun = 1, 0, [], [], [], [], [], True # compacting lines
-    if Titles[0] == "Failed to Access": # The servers are down, end.
+    if Titles == [] or Titles[0] == "Failed to Access": # The servers are down, end.
         print "The servers are down at the moment for mal-api.com, please try again later"
         canrun = False
         logger.error('Failed access to servers.')
+        offline = True
 else: # MAL is down, don't run the program any more
     canrun = False
     print "Sorry, offline mode is not implemented yet."
-    logger.info('MAL is down, exiting program sequence.')
+    logger.error('MAL is down, exiting program sequence.')
+    offline = True
     exit()
 if mode == 1: conv = {2: 'completed', 6: 'plan to watch', 1: 'watching', 3: 'on-hold', 4: 'dropped'}
 else: conv = {2: 'completed', 1: 'reading', 3: 'on-hold', 4: 'dropped'}
@@ -543,6 +554,24 @@ if canrun: # if servers are up
         if action == 7: # exits from the program
             logger.info('Exiting the program.')
             break
+if not offline:
+    logger.info("Syncing myanimelist data to local file.")
+    towr = ""
+    Titles, IDs, Syns, cEP, tEP, Scores, Status = MAL()
+    for series in range(0, len(Titles)):
+        Titles[series] = Titles[series].replace(" ", "_")
+        towr += Titles[series] + " " + IDs[series] + " " + cEP[series] + " " + Scores[series] + " " +  str(Status[series]) + "\n"
+    o = open("MAL_"+username+"_Offline.txt", 'w')
+    o.write(towr)
+    o.close()
+    towr = ""
+    Titles, IDs, Syns, cEP, tEP, Scores, Status = MML()
+    for series in range(0, len(Titles)):
+        Titles[series] = Titles[series].replace(" ", "_")
+        towr += Titles[series] + " " + IDs[series] + " " + cEP[series] + " " + Scores[series] + " " +  str(Status[series]) + "\n"
+    of = open("MML_"+username+"_Offline.txt", 'w')
+    of.write(towr)
+    of.close()
 bleak = raw_input("Thank you for using this app, press enter to exit...")
 logger.info('Program has fully ended.')
 logger.info('++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')

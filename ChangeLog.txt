@@ -1,0 +1,66 @@
+v.1
+- Basic functionality for the system.
+	+ Query MAL for list with user credentials.
+	+ Watch next episode online.
+	+ Search for episodes using Mal's api
+
+v.2
+- Episode/list changing
+	+ Can change the status/score/current episode of a seriese
+
+v.3
+- Added http code detection
+	+ Will try multiple streams based on status code of each stream (animeseason.com and gogoanime.com at the moment)
+
+v.35
+- Added Manga support (mostly need to double check)
+- Need to complete converting over to malapp instead of using MAL-api.com (partly done)
+
+v.37
+- Started the process of changing over to object oriented anime instead of stray variables
+- Program properly checks for mal-api first and if 502 then uses malapp (to switch later)
+- Now will refresh the list after chaning mode automatically
+- Will not querry for series info if selected from the list (i.e not selected by ID)
+
+v.38
+- Various Syntax errors when updating an anime
+- Added statement if gogoanime didn't work
+
+v.4
+- Completed compatibility with manga as a series with update options etc
+- Finished major obj functionality, resulting in somewhat cleaner code
+- Does not display the option to watch if the user has already finished the series
+
+v.5
+- Removed redundant lines and functions that can be replaced by a single line etc
+- Added remembering passwords based on the username (limit of 1), and a user option to disable
+- Simplified mirrors for easy appending/styles
+- Auto-completes a series when updating episodes/chapters
+- will correctly watch a series online and update properly
+- Added logging to file for debugging/error reports (nullifies encryption attempt)
+- Fixed getFromID() method in the series class
+
+v.5x (Done, append to next version)
+
+
+v.x (to add)
+- GUI, either through python itself or html file [May be least important, unless using html]
+- More mirror sites [Low importance]
+	+ Listing of priority for stream sites upon user request
+	+ Allow the user to add a stream site and pattern for access
+- Fix updates to allow status change [Important functionability, try to not require mal-api]
+- Allow downloading/syncing with mal for offline editing and automatic updating [Kinda important]
+- Create exceptions for anything online to prevent a dump to the user (if possible try to dump to a file etc) [Medium]
+- Complete documentation [?]
+- Switch to completely default python library instead of cURL (doesn't seem possible after simple research)
+- Use actual encryption on the passwords, and allow multiple users to store them at the same time [Caesar's isn't gonna cut it]
+
+Valid versions to use:
+.1
+.2
+.3x
+Version .4 has issues that inhibit major functionability due to partly implemented object use
+.5
+.5+
+
+!!!WARNING### Noticed MAL is whitelisting access, however from what I have read this whitelisting isn't working correctly/consitently###WARNING!!!
