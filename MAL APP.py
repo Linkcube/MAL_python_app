@@ -7,7 +7,7 @@ to ask the user to location (or at least the name to find the app).
 
 A guide to download cURL: http://guides.instructure.com/s/2204/m/4214/l/83393-how-do-i-install-and-use-curl-on-a-windows-machine
 
-This code will querry myanimelist.net for info pertaining to a certain account (requiring credentials beforehand)
+This code will query myanimelist.net for info pertaining to a certain account (requiring credentials beforehand)
 and will allow the user to update their anime list through the python shell as well as load
 webpages from various anime stream sites for the user based upon the progress made in the list.
 """
@@ -15,6 +15,7 @@ import subprocess # used to make system calls that can be recorded
 import cStringIO # record system calls as files to support multiple lines (stored in memory)
 import getpass # to hide the password input
 import webbrowser # to open default web browser
+import urllib # used to interract with http and retrieve status codes
 
 def Search(search): # performs a search function, returning different values based on search results
     buf = cStringIO.StringIO()
@@ -169,17 +170,26 @@ def WO(title,cE,iD,Score,Stat):
     title = title.replace(" ","-")
     title = title+"-episode-"+str(cE)
     title = title.lower()
-    #try: subprocess.call("C:\Users\AndrewY\AppData\Local\Google\Chrome\Application\chrome.exe www.gogoanime.com/"+title, shell=True)
-    try:
-        #subprocess.call("C:\Users\AndrewY\AppData\Local\Google\Chrome\Application\chrome.exe www.animeseason.com/"+title, shell=True)
+    dead = True
+    if urllib.urlopen("http://www.animeseason.com/"+title).getcode() == 200:
+        print "Connecting to animeseason..."
         webbrowser.open_new("www.animeseason.com/"+title)
+        progress = str(raw_input("Did you finish the episode (yes/dead/*): "))
+        if progress == "yes": #finished the episode, update mal
+            print Update(cE,iD,Score,Stat)
+        elif progress == "dead": # the link is dead
+            pass
+        else: # the user didn't watch the episode, don't try other streams
+            dead = False
+    if dead and urllib.urlopen("http://www.gogoanime.com/"+title).getcode() == 200:
+        print "Trying gogoanime..."
+        webbrowser.open_new("www.gogoanime.com/"+title)
         progress = str(raw_input("Did you finish the episode (yes/*): "))
         if progress == "yes": #finished the episode, update mal
             print Update(cE,iD,Score,Stat)
         else: # didn't finish the episode, don't update mal
             pass
-    except: # if the running the webpage fails
-        print "Failed connection run time"
+    else: print "Not found on animeseason or gogoanime, episode may not exist."
 
 def Update(cE,ID,Score,Stat):
     buf = cStringIO.StringIO()
